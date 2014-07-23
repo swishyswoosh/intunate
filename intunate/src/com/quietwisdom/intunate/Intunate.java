@@ -15,6 +15,14 @@ import java.util.TreeMap;
 import org.apache.commons.cli.*;
 import org.json.simple.JSONValue;
 
+import com.gps.itunes.lib.items.tracks.AdditionalTrackInfo;
+import com.gps.itunes.lib.items.tracks.Track;
+import com.gps.itunes.lib.parser.main.app.utils.MemoryCheck;
+import com.gps.itunes.lib.parser.main.app.utils.PropertyManager;
+import com.gps.itunes.lib.tasks.LibraryParser;
+import com.gps.itunes.lib.tasks.LibraryPrinter;
+import com.gps.itunes.lib.types.LibraryObject;
+import com.gps.itunes.lib.xml.XMLParser;
 import com.mpatric.mp3agic.ID3v1;
 import com.mpatric.mp3agic.ID3v2;
 import com.mpatric.mp3agic.Mp3File;
@@ -76,6 +84,25 @@ public final class Intunate {
 		    System.out.println( "Unexpected exception:" + exp.getMessage() );
 		}
 		
+		final LibraryObject root = new XMLParser().parseXML(PropertyManager
+				.getProperties().getProperty("libraryFileLocation"));
+		LibraryParser lp = new LibraryParser(root);
+		Track[] tracks = lp.getAllTracks();
+		for(int i = 0; i < tracks.length; ++i) {
+			// System.out.println(tracks[i].getLocation());
+			String location = unmangleFilename(tracks[i].getLocation());
+			if(!location.endsWith(".m4a") && !location.endsWith(".M4A")) {
+				System.out.println("FIXED: " + location);
+			}
+			// AdditionalTrackInfo info = tracks[i].getAdditionalTrackInfo();
+			// System.out.println(info.getAllAdditionalInfo());
+		}
+
+//		final LibraryPrinter printer = new LibraryPrinter(root);
+//		printer.printLibrary();
+		 
+		System.out.flush();
+		System.exit(0);
 
 		PrintWriter pw = new PrintWriter(new FileWriter(outFileName));
 
@@ -117,6 +144,22 @@ public final class Intunate {
 		System.out.println();
 		
 		if(null != pw) pw.close();
+	}
+
+	private static String unmangleFilename(String location) {
+		if(null == location) return null;
+
+		// file://localhost/Users/kallander2/Music/iTunes/iTunes%20Music/Music/2Pac/MTV%20Party%20to%20Go,%20Vol.%205/06%20I%20Get%20Around%20%5BRemix%5D.mp3
+
+		String filename = location;
+		filename = filename.replace("file://localhost/", "/");
+		filename = filename.replaceAll("%20", " ");
+		filename = filename.replaceAll("%5B", "\\[");
+		filename = filename.replaceAll("%5D", "\\]");
+		filename = filename.replaceAll("%23", "#");
+		
+		
+		return filename;
 	}
 
 	private static void usage(Options opts) {
