@@ -22,6 +22,7 @@ import com.mpatric.mp3agic.Mp3File;
 public final class Intunate {
 
 	public static final String DEFAULT_DELIMITER = "\t";
+	public static final String NULL_STRING = "NULL";
 
 	public static void main(String... args) throws Exception {
 		MessageDigest md = MessageDigest.getInstance("SHA-256");
@@ -124,13 +125,39 @@ public final class Intunate {
 		}
 		for (String k : info.keySet()) {
 			String val = info.get(k);
-			if(val.contains(delim)) val.replaceAll(delim, "");
-			pw.print((null == val) ? "NULL" : val);
+			if(null == val) val = NULL_STRING;
+			if(val.contains(delim)) val.replaceAll(delim, "?");
+			val = stripBadChars(val);
+			pw.print(val);
 			pw.print(delim);
 		}
 		pw.println();
 		pw.flush();
 	}
+	
+	private static String stripBadChars(String s) {
+		StringBuilder newString = new StringBuilder(s.length());
+		for (int offset = 0; offset < s.length();) {
+		    int codePoint = s.codePointAt(offset);
+		    offset += Character.charCount(codePoint);
+	
+		    // Replace invisible control characters and unused code points
+		    switch (Character.getType(codePoint))
+		    {
+		        case Character.CONTROL:     // \p{Cc}
+		        case Character.FORMAT:      // \p{Cf}
+		        case Character.PRIVATE_USE: // \p{Co}
+		        case Character.SURROGATE:   // \p{Cs}
+		        case Character.UNASSIGNED:  // \p{Cn}
+		            newString.append('?');
+		            break;
+		        default:
+		            newString.append(Character.toChars(codePoint));
+		            break;
+		    }
+		}
+		return newString.toString();
+	}	
 
 	private static SortedMap<String, String> getFileInfo(MP3FileWrapper f1) {
 		SortedMap<String, String> info = new TreeMap<String, String>();
