@@ -204,7 +204,31 @@ public final class Intunate {
 //	}
 
 	private static String escapeFilename(String filename) {
-		return (filename.replaceAll(" ", "\\\\ "));
+		String escaped = filename.replaceAll(" ", "\\\\ ");
+		escaped = escaped.replaceAll("#", "\\\\#");
+		escaped = escaped.replaceAll("@", "\\\\@");
+		escaped = escaped.replaceAll("<", "\\\\<");
+		escaped = escaped.replaceAll(">", "\\\\>");
+		escaped = escaped.replaceAll("\\{", "\\\\\\{");
+		escaped = escaped.replaceAll("\\}", "\\\\\\}");
+		escaped = escaped.replaceAll("\\[", "\\\\\\[");
+		escaped = escaped.replaceAll("\\]", "\\\\\\]");
+		escaped = escaped.replaceAll("\\(", "\\\\\\(");
+		escaped = escaped.replaceAll("\\)", "\\\\\\)");
+		escaped = escaped.replaceAll("\\$", "\\\\\\$");
+		escaped = escaped.replaceAll("\\+", "\\\\\\+");
+		escaped = escaped.replaceAll("%", "\\\\%");
+		escaped = escaped.replaceAll("!", "\\\\!");
+		escaped = escaped.replaceAll("`", "\\\\`");
+		escaped = escaped.replaceAll("&", "\\\\&");
+		escaped = escaped.replaceAll("\\*", "\\\\\\*");
+		escaped = escaped.replaceAll("'", "\\\\'");
+		escaped = escaped.replaceAll("\\|", "\\\\\\|");
+		escaped = escaped.replaceAll("\\?", "\\\\\\?");
+		escaped = escaped.replaceAll("\"", "\\\\\"");
+		escaped = escaped.replaceAll("=", "\\\\=");
+		escaped = escaped.replaceAll(":", "\\\\:");
+		return escaped;
 	}
 
 	/**
