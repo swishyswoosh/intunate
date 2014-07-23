@@ -1,0 +1,301 @@
+package com.quietwisdom.intunate;
+
+import java.util.*;
+import java.io.*;
+
+import com.google.common.collect.*;
+import com.mpatric.mp3agic.*;
+// import com.mpatric.mp3agic.app.*;
+import java.security.*;
+
+
+public final class IntunateMain {
+
+	public static void main(String... aArgs) throws Exception {
+		File startingDirectory = new File(aArgs[0]);
+
+		MessageDigest md = MessageDigest.getInstance("SHA-256");
+
+		Multimap<String, MP3FileWrapper> hashes = LinkedHashMultimap.create();
+
+		int f = 0;
+		int l = 0;
+		int progress_step = 10;
+		int progress_wrap = 80 * progress_step;
+		for (File file : IntunateMain.getFileListing(startingDirectory)) {
+			if(file.isDirectory()) continue;
+			if(!file.toString().endsWith(".mp3") && !file.toString().endsWith(".MP3")) continue;
+			if(!file.exists() || !file.canRead()) {
+				System.out.println("Cannot read file: " + file.toString());
+				continue;
+			}
+			
+			md.reset();
+
+//			System.out.format("File: %s\t%d\n", file.toString(), file.length());
+			String escapedFilename = escapeFilename(file.toString());
+//			System.out.println("File: " + escapedFilename);
+			Mp3File mp3 = new Mp3File(escapedFilename);
+			MP3FileWrapper fw = new MP3FileWrapper(file, mp3, md);
+			System.out.format("File: %s\n", escapedFilename);
+			System.out.println("\tFileHash: " + fw.getHexFileHash());
+			System.out.println("\tContentHash: " + fw.getHexContentHash());
+			
+			hashes.put(fw.getContentHash(), fw);
+
+			if(++f % progress_step == 0) System.out.print(".");
+			if(++l == progress_wrap) {
+				System.out.println();
+				l = 0;
+			}
+		}
+		System.out.println();
+
+		// Now print dups:
+		System.out.println("######################################################");
+		Set<String> removes = new HashSet<String>();
+		for(String key : hashes.keySet()) {
+			List<MP3FileWrapper> wraps = new ArrayList<MP3FileWrapper>(hashes.get(key));
+			for(int i = 0; i < wraps.size(); ++i) {
+				MP3FileWrapper f1 = wraps.get(i);
+				for(int j = i+1; j < wraps.size(); ++j) {
+					MP3FileWrapper f2 = wraps.get(j);
+
+					MP3FileWrapper discard = (f1.getFile().length() < f2.getFile().length()) ? f2 : f1;
+
+					if(f1.getFileHash().equals(f2.getFileHash())) {
+						removes.add(discard.getFile().toString());
+						continue;
+					}
+				}
+			}
+		}
+		
+		{
+			List<String> removeList = new ArrayList<String>(removes);
+			Collections.sort(removeList);
+			for(String rm : removeList)
+				System.out.println("rm \"" + rm + "\"");
+			System.out.flush();
+		}
+		// System.exit(0);
+		
+		for(Iterator<Map.Entry<String, MP3FileWrapper>> iter = hashes.entries().iterator(); iter.hasNext();) {
+			if(removes.contains(iter.next().getValue().getFile().toString())) {
+				iter.remove();
+			}
+		}
+	
+		System.out.println("######################################################");
+		for(String key : hashes.keySet()) {
+			List<MP3FileWrapper> wraps = new ArrayList<MP3FileWrapper>(hashes.get(key));
+			for(int i = 0; i < wraps.size(); ++i) {
+				MP3FileWrapper f1 = wraps.get(i);
+				for(int j = i+1; j < wraps.size(); ++j) {
+					MP3FileWrapper f2 = wraps.get(j);
+					compareFiles(f1, f2);
+				}
+			}
+		}
+	}
+
+	private static void compareFiles(MP3FileWrapper f1, MP3FileWrapper f2) {
+		if(!f1.getContentHash().equals(f2.getContentHash())) return;
+
+		System.out.println("# Compare: \"" + f1.getFile() + "\" =?= \"" + f2.getFile() + "\"");
+
+		if(f1.getFile().length() != f2.getFile().length())
+			System.out.println("FileLength: " + f1.getFile().length() + "\t" + f2.getFile().length());
+
+		if(f1.getFile().lastModified() != f2.getFile().lastModified()) {
+			String sep = (f1.getFile().lastModified() > f2.getFile().lastModified()) ? ">" : "<";
+			System.out.println("Last Modified: " + f1.getFile().lastModified() + " " + sep + " " + f2.getFile().lastModified());
+		}
+		
+		if(!f1.getVersion().equals(f2.getVersion()))
+			System.out.println("Version: " + f1.getVersion() + "\t" + f2.getVersion());
+
+		if(f1.getBitrate() != f2.getBitrate())
+			System.out.println("Bitrate: " + f1.getBitrate() + "\t" + f2.getBitrate());
+
+		if(f1.getLengthInSeconds() != f2.getLengthInSeconds())
+			System.out.println("Seconds: " + f1.getLengthInSeconds() + "\t" + f2.getLengthInSeconds());
+
+		if(f1.getXingOffset() != f2.getXingOffset())
+			System.out.println("XingOffset: " + f1.getXingOffset() + "\t" + f2.getXingOffset());
+
+		if(f1.getBitLength() != f2.getBitLength())
+			System.out.println("BitLength: " + f1.getBitLength() + "\t" + f2.getBitLength());
+
+		if(f1.getFrameCount() != f2.getFrameCount())
+			System.out.println("FrameCount: " + f1.getFrameCount() + "\t" + f2.getFrameCount());
+
+		if(f1.getXingBitrate() != f2.getXingBitrate())
+			System.out.println("XingBitrate: " + f1.getXingBitrate() + "\t" + f2.getXingBitrate());
+
+		if(!f1.getChannelMode().equals(f2.getChannelMode()))
+			System.out.println("ChannelMode: " + f1.getChannelMode() + "\t" + f2.getChannelMode());
+
+		if(!f1.getEmphasis().equals(f2.getEmphasis()))
+			System.out.println("getEmphasis: " + f1.getEmphasis() + "\t" + f2.getEmphasis());
+
+		if(!f1.getModeExtension().equals(f2.getModeExtension()))
+			System.out.println("getModeExtension: " + f1.getModeExtension() + "\t" + f2.getModeExtension());
+
+		if(f1.getSampleRate() != f2.getSampleRate())
+			System.out.println("SampleRate: " + f1.getSampleRate() + "\t" + f2.getSampleRate());
+
+		if(f1.isOriginal() != f2.isOriginal())
+			System.out.println("isOriginal: " + f1.isOriginal() + "\t" + f2.isOriginal());
+
+		if(f1.isVbr() != f2.isVbr())
+			System.out.println("isVbr: " + f1.isVbr() + "\t" + f2.isVbr());
+
+		compareID3v1Tags(f1.getId3v1Tag(), f2.getId3v1Tag());
+		compareID3v2Tags(f1.getId3v2Tag(), f2.getId3v2Tag());
+
+		System.out.println();
+	}
+
+	private static void compareID3v1Tags(ID3v1 tag1, ID3v1 tag2) {
+		String prefix = "ID3v1";
+
+		if(null == tag1 && null == tag2) return;
+		if(null == tag1 && null != tag2) {
+			System.out.println(prefix + " tag: [NULL]\t[NOT NULL]");
+			return;
+		}
+		if(null != tag1 && null == tag2) {
+			System.out.println(prefix + " tag: [NOT NULL]\t[NULL]");
+			return;
+		}
+		
+		compareTagValues(prefix, "Artist", tag1.getArtist(), tag2.getArtist());
+		compareTagValues(prefix, "Title", tag1.getTitle(), tag2.getTitle());
+		compareTagValues(prefix, "Album", tag1.getAlbum(), tag2.getAlbum());
+		compareTagValues(prefix, "Track", tag1.getTrack(), tag2.getTrack());
+		compareTagValues(prefix, "Year", tag1.getYear(), tag2.getYear());
+		compareTagValues(prefix, "Genre", tag1.getGenreDescription(), tag2.getGenreDescription());
+		compareTagValues(prefix, "Comment", tag1.getComment(), tag2.getComment());
+		compareTagValues(prefix, "Version", tag1.getVersion(), tag2.getVersion());
+	}
+
+	private static void compareID3v2Tags(ID3v2 tag1, ID3v2 tag2) {
+		String prefix = "ID3v2";
+
+		if(null == tag1 && null == tag2) return;
+		if(null == tag1 && null != tag2) {
+			System.out.println(prefix + " tag: [NULL]\t[NOT NULL]");
+			return;
+		}
+		if(null != tag1 && null == tag2) {
+			System.out.println(prefix + " tag: [NOT NULL]\t[NULL]");
+			return;
+		}
+		
+		compareTagValues(prefix, "Artist", tag1.getArtist(), tag2.getArtist());
+		compareTagValues(prefix, "Title", tag1.getTitle(), tag2.getTitle());
+		compareTagValues(prefix, "Album", tag1.getAlbum(), tag2.getAlbum());
+		compareTagValues(prefix, "Track", tag1.getTrack(), tag2.getTrack());
+		compareTagValues(prefix, "Year", tag1.getYear(), tag2.getYear());
+		compareTagValues(prefix, "Genre", tag1.getGenreDescription(), tag2.getGenreDescription());
+		compareTagValues(prefix, "Comment", tag1.getComment(), tag2.getComment());
+		compareTagValues(prefix, "Version", tag1.getVersion(), tag2.getVersion());
+		compareTagValues(prefix, "Composer", tag1.getComposer(), tag2.getComposer());
+		compareTagValues(prefix, "Publisher", tag1.getPublisher(), tag2.getPublisher());
+		compareTagValues(prefix, "OrigArtist", tag1.getOriginalArtist(), tag2.getOriginalArtist());
+		compareTagValues(prefix, "AlbumArtist", tag1.getAlbumArtist(), tag2.getAlbumArtist());
+		compareTagValues(prefix, "Copyright", tag1.getCopyright(), tag2.getCopyright());
+		compareTagValues(prefix, "URL", tag1.getUrl(), tag2.getUrl());
+		compareTagValues(prefix, "Encoder", tag1.getEncoder(), tag2.getEncoder());
+		compareTagValues(prefix, "ItunesComment", tag1.getItunesComment(), tag2.getItunesComment());
+
+		if(tag1.getPadding() != tag2.getPadding())
+			System.out.println(prefix + " Padding: " + tag1.getPadding() + "\t" + tag2.getPadding());
+
+		if(tag1.hasFooter() != tag2.hasFooter())
+			System.out.println(prefix + " hasFooter: " + tag1.hasFooter() + "\t" + tag2.hasFooter());
+
+		if(tag1.hasUnsynchronisation() != tag2.hasUnsynchronisation())
+			System.out.println(prefix + " hasUnsynchronisation: " + tag1.hasUnsynchronisation() + "\t" + tag2.hasUnsynchronisation());
+
+		if(tag1.getDataLength() != tag2.getDataLength())
+			System.out.println(prefix + " DataLength: " + tag1.getDataLength() + "\t" + tag2.getDataLength());
+
+		if(tag1.getLength() != tag2.getLength())
+			System.out.println(prefix + " Length: " + tag1.getLength() + "\t" + tag2.getLength());
+
+		if(tag1.getObseleteFormat() != tag2.getObseleteFormat())
+			System.out.println(prefix + " getObseleteFormat: " + tag1.getObseleteFormat() + "\t" + tag2.getObseleteFormat());
+
+	}
+
+	private static void compareTagValues(String prefix, String attrib, String val1, String val2) {
+		if(null == val1 && null == val2) return;
+
+		if(null == val1) val1 = "NULL";
+		if(null == val2) val2 = "NULL";
+		if(!val1.equals(val2))
+			System.out.println(prefix + " " + attrib + ": \"" + val1 + "\"\t\"" + val2 + "\"");
+	}
+
+	private static String escapeFilename(String filename) {
+		return filename.replaceAll(" ", "\\ ");
+	}
+
+	/**
+	 * Recursively walk a directory tree and return a List of all Files found;
+	 * the List is sorted using File.compareTo().
+	 * 
+	 * @param aStartingDir
+	 *            is a valid directory, which can be read.
+	 */
+	static public List<File> getFileListing(File aStartingDir)
+			throws FileNotFoundException {
+		validateDirectory(aStartingDir);
+		List<File> result = getFileListingNoSort(aStartingDir);
+		Collections.sort(result);
+		return result;
+	}
+
+	// PRIVATE //
+	static private List<File> getFileListingNoSort(File aStartingDir)
+			throws FileNotFoundException {
+		List<File> result = new ArrayList<File>();
+		File[] filesAndDirs = aStartingDir.listFiles();
+		List<File> filesDirs = Arrays.asList(filesAndDirs);
+		for (File file : filesDirs) {
+			result.add(file); // always add, even if directory
+			if (!file.isFile()) {
+				// must be a directory
+				// recursive call!
+				List<File> deeperList = getFileListingNoSort(file);
+				result.addAll(deeperList);
+			}
+		}
+		return result;
+	}
+
+	/**
+	 * Directory is valid if it exists, does not represent a file, and can be
+	 * read.
+	 */
+	static private void validateDirectory(File aDirectory)
+			throws FileNotFoundException {
+		if (aDirectory == null) {
+			throw new IllegalArgumentException("Directory should not be null.");
+		}
+		if (!aDirectory.exists()) {
+			throw new FileNotFoundException("Directory does not exist: "
+					+ aDirectory);
+		}
+		if (!aDirectory.isDirectory()) {
+			throw new IllegalArgumentException("Is not a directory: "
+					+ aDirectory);
+		}
+		if (!aDirectory.canRead()) {
+			throw new IllegalArgumentException("Directory cannot be read: "
+					+ aDirectory);
+		}
+	}
+}
