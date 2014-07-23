@@ -124,6 +124,7 @@ public final class Intunate {
 		}
 		for (String k : info.keySet()) {
 			String val = info.get(k);
+			if(val.contains(delim)) val.replaceAll(delim, "");
 			pw.print((null == val) ? "NULL" : val);
 			pw.print(delim);
 		}
