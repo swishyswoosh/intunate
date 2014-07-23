@@ -34,7 +34,7 @@ public final class Intunate {
 			opts.addOption( "t", "delimiter", true, "delimiter for output (default is tab)");
 			opts.addOption( "o", "outfile", true, "output filename");
 			opts.addOption( "d", "directory", true, "input directory path (enclose in quotes if spaces are in path)");
-			
+						
 			CommandLineParser parser = new GnuParser();
 			CommandLine cmd = parser.parse(opts, args);
 			
@@ -53,7 +53,7 @@ public final class Intunate {
 				String dir = cmd.getOptionValue("d");
 				if(null == dir) usage(opts);
 
-				startingDirectory = new File(args[0]);
+				startingDirectory = new File(dir);
 				if(!startingDirectory.isDirectory() || !startingDirectory.exists() || !startingDirectory.canRead()) {
 					System.err.println("Directory/Folder not found: " + dir);
 					usage(opts);
@@ -86,7 +86,7 @@ public final class Intunate {
 //			System.out.format("File: %s\t%d\n", file.toString(), file.length());
 			String escapedFilename = escapeFilename(file.toString());
 //			System.out.println("File: " + escapedFilename);
-			Mp3File mp3 = new Mp3File(escapedFilename);
+			Mp3File mp3 = new Mp3File(file.toString());
 			MP3FileWrapper fw = new MP3FileWrapper(file, mp3, md);
 //			System.out.println("\tFileHash: " + fw.getHexFileHash());
 //			System.out.println("\tContentHash: " + fw.getHexContentHash());
@@ -204,7 +204,7 @@ public final class Intunate {
 //	}
 
 	private static String escapeFilename(String filename) {
-		return filename.replaceAll(" ", "\\ ");
+		return (filename.replaceAll(" ", "\\\\ "));
 	}
 
 	/**
