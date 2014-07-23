@@ -13,6 +13,7 @@ import java.util.SortedMap;
 import java.util.TreeMap;
 
 import org.apache.commons.cli.*;
+import org.json.simple.JSONValue;
 
 import com.mpatric.mp3agic.ID3v1;
 import com.mpatric.mp3agic.ID3v2;
@@ -29,12 +30,14 @@ public final class Intunate {
 		
 		File startingDirectory = null;
 		String outFileName = null;
+		boolean json_format = false;
 		String delim = DEFAULT_DELIMITER;
 		try {
 			Options opts = new Options();
 			opts.addOption( "t", "delimiter", true, "delimiter for output (default is tab)");
 			opts.addOption( "o", "outfile", true, "output filename");
 			opts.addOption( "d", "directory", true, "input directory path (enclose in quotes if spaces are in path)");
+			opts.addOption( "j", "json_format", false, "format output as JSON");
 						
 			CommandLineParser parser = new GnuParser();
 			CommandLine cmd = parser.parse(opts, args);
@@ -64,11 +67,14 @@ public final class Intunate {
 				usage(opts);
 			}
 			if(null == outFileName) usage(opts);
-		}
-		catch( ParseException exp ) {
+
+			if(cmd.hasOption("j")) {
+				json_format = true;
+			}
+
+		} catch( ParseException exp ) {
 		    System.out.println( "Unexpected exception:" + exp.getMessage() );
 		}
-		
 		
 
 		PrintWriter pw = new PrintWriter(new FileWriter(outFileName));
@@ -89,24 +95,28 @@ public final class Intunate {
 //			System.out.println("File: " + escapedFilename);
 			Mp3File mp3 = new Mp3File(file.toString());
 			MP3FileWrapper fw = new MP3FileWrapper(file, mp3, md);
-//			System.out.println("\tFileHash: " + fw.getHexFileHash());
-//			System.out.println("\tContentHash: " + fw.getHexContentHash());
 
 			SortedMap<String, String> info = getFileInfo(fw);
 			info.put("Filename", file.toString());
 			info.put("EscapedFilename", escapedFilename);
 			info.put("FileLength", Long.toString(file.length()));
 			
-			printInfo(info, pw, delim, header);
-			if(header) header = false;
-
+			if(json_format) {
+				// json:
+				String jsonText = JSONValue.toJSONString(info);
+				pw.println(jsonText);
+				// System.out.println(jsonText);
+			} else {
+				// delimited:
+				printInfoDelimited(info, pw, delim, header);
+				if(header) header = false;
+			}
 			System.out.format("File Processed: %s\n", info.get("EscapedFilename"));
 
 		}
 		System.out.println();
 		
 		if(null != pw) pw.close();
-
 	}
 
 	private static void usage(Options opts) {
@@ -115,7 +125,7 @@ public final class Intunate {
 		System.exit(0);
 	}
 
-	private static void printInfo(SortedMap<String, String> info, PrintWriter pw, String delim, boolean header) {
+	private static void printInfoDelimited(SortedMap<String, String> info, PrintWriter pw, String delim, boolean header) {
 		if(header) {
 			for (String k : info.keySet()) {
 				pw.print(k);
@@ -128,7 +138,7 @@ public final class Intunate {
 			if(null == val) val = NULL_STRING;
 			if(val.contains(delim)) val.replaceAll(delim, "?");
 			val = stripBadChars(val);
-			pw.print(val);
+			pw.print("\"" + val + "\"");
 			pw.print(delim);
 		}
 		pw.println();
@@ -188,41 +198,41 @@ public final class Intunate {
 
 	private static void addID3v1Tags(ID3v1 tag1, SortedMap<String, String> info) {
 		String prefix = "ID3v1_";
-		info.put(prefix + "Artist", (null == tag1) ? "NULL" : tag1.getArtist());
-		info.put(prefix + "Title", (null == tag1) ? "NULL" : tag1.getTitle());
-		info.put(prefix + "Album", (null == tag1) ? "NULL" : tag1.getAlbum());
-		info.put(prefix + "Track", (null == tag1) ? "NULL" : tag1.getTrack());
-		info.put(prefix + "Year", (null == tag1) ? "NULL" : tag1.getYear());
-		info.put(prefix + "Genre", (null == tag1) ? "NULL" : tag1.getGenreDescription());
-		info.put(prefix + "Comment", (null == tag1) ? "NULL" : tag1.getComment());
-		info.put(prefix + "Version", (null == tag1) ? "NULL" : tag1.getVersion());
+		info.put(prefix + "Artist", (null == tag1) ? null : tag1.getArtist());
+		info.put(prefix + "Title", (null == tag1) ? null : tag1.getTitle());
+		info.put(prefix + "Album", (null == tag1) ? null : tag1.getAlbum());
+		info.put(prefix + "Track", (null == tag1) ? null : tag1.getTrack());
+		info.put(prefix + "Year", (null == tag1) ? null : tag1.getYear());
+		info.put(prefix + "Genre", (null == tag1) ? null : tag1.getGenreDescription());
+		info.put(prefix + "Comment", (null == tag1) ? null : tag1.getComment());
+		info.put(prefix + "Version", (null == tag1) ? null : tag1.getVersion());
 	}
 
 	private static void addID3v2Tags(ID3v2 tag1, SortedMap<String, String> info) {
 		String prefix = "ID3v2_";
 
-		info.put(prefix + "Artist", (null == tag1) ? "NULL" : tag1.getArtist());
-		info.put(prefix + "Title", (null == tag1) ? "NULL" : tag1.getTitle());
-		info.put(prefix + "Album", (null == tag1) ? "NULL" : tag1.getAlbum());
-		info.put(prefix + "Track", (null == tag1) ? "NULL" : tag1.getTrack());
-		info.put(prefix + "Year", (null == tag1) ? "NULL" : tag1.getYear());
-		info.put(prefix + "Genre", (null == tag1) ? "NULL" : tag1.getGenreDescription());
-		info.put(prefix + "Comment", (null == tag1) ? "NULL" : tag1.getComment());
-		info.put(prefix + "Version", (null == tag1) ? "NULL" : tag1.getVersion());
-		info.put(prefix + "Composer", (null == tag1) ? "NULL" : tag1.getComposer());
-		info.put(prefix + "Publisher", (null == tag1) ? "NULL" : tag1.getPublisher());
-		info.put(prefix + "OrigArtist", (null == tag1) ? "NULL" : tag1.getOriginalArtist());
-		info.put(prefix + "AlbumArtist", (null == tag1) ? "NULL" : tag1.getAlbumArtist());
-		info.put(prefix + "Copyright", (null == tag1) ? "NULL" : tag1.getCopyright());
-		info.put(prefix + "URL", (null == tag1) ? "NULL" : tag1.getUrl());
-		info.put(prefix + "Encoder", (null == tag1) ? "NULL" : tag1.getEncoder());
-		info.put(prefix + "ItunesComment", (null == tag1) ? "NULL" : tag1.getItunesComment());
-		info.put(prefix + "Padding",  (null == tag1) ? "NULL" : Boolean.toString(tag1.getPadding()));
-		info.put(prefix + "HasFooter", (null == tag1) ? "NULL" : Boolean.toString(tag1.hasFooter()));
-		info.put(prefix + "HasUnsynchronisation", (null == tag1) ? "NULL" : Boolean.toString(tag1.hasUnsynchronisation()));
-		info.put(prefix + "DataLength", (null == tag1) ? "NULL" : Integer.toString(tag1.getDataLength()));
-		info.put(prefix + "Length", (null == tag1) ? "NULL" : Integer.toString(tag1.getLength()));
-		info.put(prefix + "getObseleteFormat", (null == tag1) ? "NULL" : Boolean.toString(tag1.getObseleteFormat()));
+		info.put(prefix + "Artist", (null == tag1) ? null : tag1.getArtist());
+		info.put(prefix + "Title", (null == tag1) ? null : tag1.getTitle());
+		info.put(prefix + "Album", (null == tag1) ? null : tag1.getAlbum());
+		info.put(prefix + "Track", (null == tag1) ? null : tag1.getTrack());
+		info.put(prefix + "Year", (null == tag1) ? null : tag1.getYear());
+		info.put(prefix + "Genre", (null == tag1) ? null : tag1.getGenreDescription());
+		info.put(prefix + "Comment", (null == tag1) ? null : tag1.getComment());
+		info.put(prefix + "Version", (null == tag1) ? null : tag1.getVersion());
+		info.put(prefix + "Composer", (null == tag1) ? null : tag1.getComposer());
+		info.put(prefix + "Publisher", (null == tag1) ? null : tag1.getPublisher());
+		info.put(prefix + "OrigArtist", (null == tag1) ? null : tag1.getOriginalArtist());
+		info.put(prefix + "AlbumArtist", (null == tag1) ? null : tag1.getAlbumArtist());
+		info.put(prefix + "Copyright", (null == tag1) ? null : tag1.getCopyright());
+		info.put(prefix + "URL", (null == tag1) ? null : tag1.getUrl());
+		info.put(prefix + "Encoder", (null == tag1) ? null : tag1.getEncoder());
+		info.put(prefix + "ItunesComment", (null == tag1) ? null : tag1.getItunesComment());
+		info.put(prefix + "Padding",  (null == tag1) ? null : Boolean.toString(tag1.getPadding()));
+		info.put(prefix + "HasFooter", (null == tag1) ? null : Boolean.toString(tag1.hasFooter()));
+		info.put(prefix + "HasUnsynchronisation", (null == tag1) ? null : Boolean.toString(tag1.hasUnsynchronisation()));
+		info.put(prefix + "DataLength", (null == tag1) ? null : Integer.toString(tag1.getDataLength()));
+		info.put(prefix + "Length", (null == tag1) ? null : Integer.toString(tag1.getLength()));
+		info.put(prefix + "getObseleteFormat", (null == tag1) ? null : Boolean.toString(tag1.getObseleteFormat()));
 
 	}
 
