@@ -1,66 +1,211 @@
 package com.quietwisdom.intunate;
 
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileWriter;
-import java.io.PrintWriter;
+import java.io.*;
+import java.net.*;
 import java.security.MessageDigest;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-import java.util.SortedMap;
-import java.util.TreeMap;
+import java.util.*;
 
 import org.apache.commons.cli.*;
 import org.json.simple.JSONValue;
 
-import com.gps.itunes.lib.items.tracks.AdditionalTrackInfo;
-import com.gps.itunes.lib.items.tracks.Track;
-import com.gps.itunes.lib.parser.main.app.utils.MemoryCheck;
-import com.gps.itunes.lib.parser.main.app.utils.PropertyManager;
+import com.gps.itunes.lib.exceptions.LibraryParseException;
+import com.gps.itunes.lib.exceptions.NoChildrenException;
+import com.gps.itunes.lib.items.tracks.*;
+// import com.gps.itunes.lib.parser.main.app.utils.PropertyManager;
 import com.gps.itunes.lib.tasks.LibraryParser;
-import com.gps.itunes.lib.tasks.LibraryPrinter;
 import com.gps.itunes.lib.types.LibraryObject;
 import com.gps.itunes.lib.xml.XMLParser;
-import com.mpatric.mp3agic.ID3v1;
-import com.mpatric.mp3agic.ID3v2;
-import com.mpatric.mp3agic.Mp3File;
+import com.mpatric.mp3agic.*;
 
 
 public final class Intunate {
 
 	public static final String DEFAULT_DELIMITER = "\t";
 	public static final String NULL_STRING = "NULL";
+	public static final String CONST_MUSIC_SPLIT_REGEX = "(?i)/Music/";
 
-	public static void main(String... args) throws Exception {
-		MessageDigest md = MessageDigest.getInstance("SHA-256");
+	public static void main(String[] args) throws Exception {
 		
-		File startingDirectory = null;
-		String outFileName = null;
-		boolean json_format = false;
-		String delim = DEFAULT_DELIMITER;
+		Map<String, Object> conf = parseCommandLine(args);
+
+		File startingDirectory = (File)conf.get("startingDirectory");
+		String libraryFileLocation = (String)conf.get("libraryFileLocation");
+		String outFileName = (String)conf.get("outFileName");
+		boolean json_format = (Boolean)conf.get("json_format");
+		String delim = (String)conf.get("delimiter");
+		
+		
+		// libraryFileLocation = PropertyManager.getProperties().getProperty("libraryFileLocation");
+		System.out.println("Scanning iTunes Library... " + libraryFileLocation);
+		Map<String, AdditionalTrackInfo> libTunes = readITunesLibrary(libraryFileLocation, false);
+
+		System.out.println("Scanning files...");
+		PrintWriter pw = new PrintWriter(new FileWriter(outFileName));
+		boolean header = true;
+		MessageDigest md = MessageDigest.getInstance("SHA-256");
+		List<File> files = Intunate.getFileListing(startingDirectory);
+		for(int i = 0; i < files.size(); ++i) {
+			File file = files.get(i);
+
+			if(file.isDirectory()) continue;
+			if(!file.toString().matches(".*\\.([mM][pP]3)$")) continue;
+			if(!file.exists() || !file.canRead()) {
+				System.out.println("Cannot find/read file: " + file.toString());
+				continue;
+			}
+			
+			md.reset();
+
+//			System.out.format("File: %s\t%d\n", file.toString(), file.length());
+			String escapedFilename = escapeFilename(file.toString());
+//			System.out.println("File: " + escapedFilename);
+			Mp3File mp3 = new Mp3File(file.toString());
+			MP3FileWrapper fw = new MP3FileWrapper(file, mp3, md);
+
+			SortedMap<String, String> info = getFileInfo(fw);
+
+			String relPath = getRelPath(file.toString());
+			
+			boolean searchTunes = (null != libTunes);
+			boolean iTunesFound = false;
+			if(searchTunes) {
+				iTunesFound = libTunes.containsKey(relPath.toUpperCase());
+				if(!iTunesFound) {
+					// Search for some possible alternate namings
+					String iTunesRelPath = null;
+					boolean altfound = false;
+	
+					int pos = relPath.lastIndexOf('.');
+					for(int altNum = 1; altNum < 10; ++altNum) {
+						iTunesRelPath = relPath.substring(0, pos) + " " + altNum + relPath.substring(pos);
+						if(libTunes.containsKey(iTunesRelPath.toUpperCase())) {
+							altfound = true;
+							break;
+						}
+					}
+					
+					if(altfound) {
+						// Check that iTunes file version exists...
+						String iTunesMusicDirPath = getMusicDirPath(file.toString());
+						String iTunesFilePath = iTunesMusicDirPath + iTunesRelPath;
+						if(! new File(iTunesFilePath).exists()) {
+							System.out.println("mv -n " + escapedFilename + " " + escapeFilename(iTunesFilePath));
+						} else {
+							// check altfile to ensure same files
+							boolean same = compareMP3Files(new Mp3File(iTunesFilePath), mp3);
+							if(same) {
+								System.out.println("rm -f " + escapedFilename);
+								continue;
+							}
+						}
+					} else {
+						// System.out.println("# ORPHAN/iTunes Missing: " + file.toString());
+						System.out.println("mv -nt ~/import/ " + escapedFilename);		
+					}
+					
+				}
+			}
+			info.put("Filename", file.toString());
+			info.put("EscapedFilename", escapedFilename);
+			info.put("FileLength", Long.toString(file.length()));
+			info.put("iTunesFound", Boolean.toString(iTunesFound));
+			
+			
+			AdditionalTrackInfo iTunesInfo = libTunes.get(file.toString().toUpperCase());
+			if(null != iTunesInfo) {
+				// String iTunesInfoString = iTunesInfo.getAllAdditionalInfo();
+				// TODO
+			}
+			
+			if(json_format) {
+				// json:
+				String jsonText = JSONValue.toJSONString(info);
+				pw.println(jsonText);
+				// System.out.println(jsonText);
+			} else {
+				// delimited:
+				printInfoDelimited(info, pw, delim, header);
+				if(header) header = false;
+			}
+			
+			// float pctDone = i/files.size() * 100;
+			// updateProgress(pctDone);
+			// System.out.format("# File Processed: %s\n", info.get("EscapedFilename"));
+		}
+		System.out.println();
+		
+		if(null != pw) pw.close();
+	}
+
+	private static String getMusicDirPath(String filename) {
+		if(null == filename) return null;
+
+		String[] pair = filename.split(CONST_MUSIC_SPLIT_REGEX, 2);
+		if(pair.length < 2) return null;
+		
+		// Walk past the prefix dir (one more dir) using path separator
+		int pos = filename.indexOf(File.pathSeparatorChar, pair[0].length()+1);
+		String prefixDirPath = filename.substring(0, pos+1);
+		return prefixDirPath;
+	}
+
+	private static Map<String, AdditionalTrackInfo> readITunesLibrary(String libFile, boolean printLibrary) throws Exception {
+		Map<String, AdditionalTrackInfo> libTunes = new HashMap<String, AdditionalTrackInfo>();
+//		try {
+			LibraryObject lo = new XMLParser().parseXML(libFile);
+			LibraryParser lp = new LibraryParser(lo);
+			Track[] tracks = lp.getAllTracks();
+			int i = 0;
+			for(;i < tracks.length; ++i) {
+				String location = unmangleFilename(tracks[i].getLocation());
+				if(location.matches(".*\\.([mM][pP]3)$")) {
+					String relPath = getRelPath(location);
+					if(null == relPath) {
+						if(!location.contains("/Audiobooks/")) {
+							System.out.println("iTunes library references missing file: " + location);
+							// System.out.println(tracks[i].getAdditionalTrackInfo().getAllAdditionalInfo());
+						}
+						continue;
+					} else {
+						libTunes.put(relPath.toUpperCase(), tracks[i].getAdditionalTrackInfo());
+						if(printLibrary) System.out.println("iTunes:>" + relPath + "<");
+					}
+				}
+			}
+			System.out.format("\tfound %d records\n", i);
+//		} catch (Exception e) {
+//			e.printStackTrace();
+//			System.out.println("Unable to read iTunes library");
+//			throw new RuntimeException(e);
+//			// return null;
+//		}
+		return libTunes;
+	}
+
+	private static Map<String, Object> parseCommandLine(String[] args) {
+		Map<String, Object> params = new HashMap<String, Object>();
 		try {
 			Options opts = new Options();
-			opts.addOption( "t", "delimiter", true, "delimiter for output (default is tab)");
-			opts.addOption( "o", "outfile", true, "output filename");
-			opts.addOption( "d", "directory", true, "input directory path (enclose in quotes if spaces are in path)");
-			opts.addOption( "j", "json_format", false, "format output as JSON");
+			opts.addOption("t", "delimiter", true, "(Optional) delimiter for output [default is tab]");
+			opts.addOption("o", "outfile", true, "(Required) output filename");
+			opts.addOption("d", "directory", true, "(Required) input directory path (enclose in quotes if spaces are in path, e.g: \"/path/to/My Music/\")");
+			opts.addOption("l", "library", true, "(Required) iTunes XML library file to read");
+			opts.addOption("j", "json_format", false, "(Optional) format output as JSON");
 						
 			CommandLineParser parser = new GnuParser();
 			CommandLine cmd = parser.parse(opts, args);
 			
-
-			if(cmd.hasOption("o")) {
-				outFileName = cmd.getOptionValue("o");
-			}
-			if(null == outFileName) usage(opts);
-			
+			String delim = DEFAULT_DELIMITER;
 			if(cmd.hasOption("t")) {
 				String sep = cmd.getOptionValue("t");
 				if(null != sep) delim = sep;
 			}
+			params.put("delimiter", delim);
 
+			params.put("json_format", new Boolean(cmd.hasOption("j")));
+
+			
+			File startingDirectory = null;
 			if(cmd.hasOption("d")) {
 				String dir = cmd.getOptionValue("d");
 				if(null == dir) usage(opts);
@@ -74,91 +219,68 @@ public final class Intunate {
 			} else {
 				usage(opts);
 			}
-			if(null == outFileName) usage(opts);
+			params.put("startingDirectory", startingDirectory);
 
-			if(cmd.hasOption("j")) {
-				json_format = true;
+			
+			String libraryFileLocation = null;
+			if(cmd.hasOption("l")) {
+				libraryFileLocation = cmd.getOptionValue("l");
+
+				File libraryFile = new File(libraryFileLocation);
+				if(!libraryFile.isFile() || !libraryFile.exists() || !libraryFile.canRead()) {
+					System.err.println("iTunes library file not found: " + libraryFileLocation);
+					usage(opts);
+				}
+			} else {
+				usage(opts);
 			}
+			params.put("libraryFileLocation", libraryFileLocation);
+
+
+			String outFileName = null;
+			if(cmd.hasOption("o")) {
+				outFileName = cmd.getOptionValue("o");
+			}
+			if(null == outFileName) usage(opts);
+			params.put("outFileName", outFileName);
+			
 
 		} catch( ParseException exp ) {
 		    System.out.println( "Unexpected exception:" + exp.getMessage() );
+		    System.exit(1);
 		}
-		
-		final LibraryObject root = new XMLParser().parseXML(PropertyManager
-				.getProperties().getProperty("libraryFileLocation"));
-		LibraryParser lp = new LibraryParser(root);
-		Track[] tracks = lp.getAllTracks();
-		for(int i = 0; i < tracks.length; ++i) {
-			// System.out.println(tracks[i].getLocation());
-			String location = unmangleFilename(tracks[i].getLocation());
-			if(!location.endsWith(".m4a") && !location.endsWith(".M4A")) {
-				System.out.println("FIXED: " + location);
-			}
-			// AdditionalTrackInfo info = tracks[i].getAdditionalTrackInfo();
-			// System.out.println(info.getAllAdditionalInfo());
-		}
-
-//		final LibraryPrinter printer = new LibraryPrinter(root);
-//		printer.printLibrary();
-		 
-		System.out.flush();
-		System.exit(0);
-
-		PrintWriter pw = new PrintWriter(new FileWriter(outFileName));
-
-		boolean header = true;
-		for (File file : Intunate.getFileListing(startingDirectory)) {
-			if(file.isDirectory()) continue;
-			if(!file.toString().endsWith(".mp3") && !file.toString().endsWith(".MP3")) continue;
-			if(!file.exists() || !file.canRead()) {
-				System.out.println("Cannot read file: " + file.toString());
-				continue;
-			}
-			
-			md.reset();
-
-//			System.out.format("File: %s\t%d\n", file.toString(), file.length());
-			String escapedFilename = escapeFilename(file.toString());
-//			System.out.println("File: " + escapedFilename);
-			Mp3File mp3 = new Mp3File(file.toString());
-			MP3FileWrapper fw = new MP3FileWrapper(file, mp3, md);
-
-			SortedMap<String, String> info = getFileInfo(fw);
-			info.put("Filename", file.toString());
-			info.put("EscapedFilename", escapedFilename);
-			info.put("FileLength", Long.toString(file.length()));
-			
-			if(json_format) {
-				// json:
-				String jsonText = JSONValue.toJSONString(info);
-				pw.println(jsonText);
-				// System.out.println(jsonText);
-			} else {
-				// delimited:
-				printInfoDelimited(info, pw, delim, header);
-				if(header) header = false;
-			}
-			System.out.format("File Processed: %s\n", info.get("EscapedFilename"));
-
-		}
-		System.out.println();
-		
-		if(null != pw) pw.close();
+		return params;
 	}
 
-	private static String unmangleFilename(String location) {
+	private static String getRelPath(String location) {
 		if(null == location) return null;
 
-		// file://localhost/Users/kallander2/Music/iTunes/iTunes%20Music/Music/2Pac/MTV%20Party%20to%20Go,%20Vol.%205/06%20I%20Get%20Around%20%5BRemix%5D.mp3
+		String[] pair = location.split(CONST_MUSIC_SPLIT_REGEX, 2);
+		if(pair.length < 2) return null;
+		return pair[1];
+	}
 
-		String filename = location;
-		filename = filename.replace("file://localhost/", "/");
-		filename = filename.replaceAll("%20", " ");
-		filename = filename.replaceAll("%5B", "\\[");
-		filename = filename.replaceAll("%5D", "\\]");
-		filename = filename.replaceAll("%23", "#");
-		
-		
+	static void updateProgress(double progressPercentage) {
+		final int width = 50; // progress bar width in chars
+
+		System.out.print("\r[");
+		int i = 0;
+		for (; i <= (int) (progressPercentage * width); i++) {
+			System.out.print(".");
+		}
+		for (; i < width; i++) {
+			System.out.print(" ");
+		}
+		System.out.print("]");
+	}
+
+	private static boolean compareMP3Files(Mp3File m1, Mp3File m2) {
+		return(m1.getBitrate() == m2.getBitrate() && m1.getLengthInSeconds() == m2.getLengthInSeconds());
+	}
+
+	private static String unmangleFilename(String url) throws UnsupportedEncodingException, URISyntaxException {
+		if(null == url) return null;
+		String filename = new URI(url).getPath();
 		return filename;
 	}
 

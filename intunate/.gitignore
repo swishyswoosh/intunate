@@ -1,5 +1,10 @@
+.DS_Store
 /target
 /.settings
+/logs
+dist
 *.txt
 *.csv
+*.tab
+*.tsv
 *.json
