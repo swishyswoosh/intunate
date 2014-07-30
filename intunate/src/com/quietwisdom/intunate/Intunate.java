@@ -8,6 +8,7 @@ import java.util.*;
 import org.apache.commons.cli.*;
 import org.json.simple.JSONValue;
 
+import com.google.common.collect.*;
 import com.gps.itunes.lib.exceptions.LibraryParseException;
 import com.gps.itunes.lib.exceptions.NoChildrenException;
 import com.gps.itunes.lib.items.tracks.*;
@@ -36,45 +37,72 @@ public final class Intunate {
 		
 		
 		// libraryFileLocation = PropertyManager.getProperties().getProperty("libraryFileLocation");
-		System.out.println("Scanning iTunes Library... " + libraryFileLocation);
-		Map<String, AdditionalTrackInfo> libTunes = readITunesLibrary(libraryFileLocation, false);
+		System.out.println("Scanning iTunes Library @ " + libraryFileLocation);
+		List<String> missing = new ArrayList<String>();
+		Map<String, Track> libTunes = new HashMap<String, Track>();
+		if(null != libraryFileLocation) 
+			readITunesLibrary(libraryFileLocation, libTunes, missing);
+		System.out.println("\tfound " + libTunes.keySet().size() + " records");
 
-		System.out.println("Scanning files...");
+		System.out.println("Missing files referenced in iTunes...");
+		Collections.sort(missing);
+		for(String s : missing) System.out.println(s);
+		System.out.println();
+		System.out.println();
+		
+
+		System.out.println("Files referenced in iTunes...");
+		for(String s : libTunes.keySet()) System.out.println(s);
+		System.out.println();
+		System.out.println();
+
+
 		PrintWriter pw = new PrintWriter(new FileWriter(outFileName));
 		boolean header = true;
 		MessageDigest md = MessageDigest.getInstance("SHA-256");
-		List<File> files = Intunate.getFileListing(startingDirectory);
-		for(int i = 0; i < files.size(); ++i) {
-			File file = files.get(i);
-
+		List<String> imports = new ArrayList<String>();
+		List<String> duplicates = new ArrayList<String>();
+		Map<String, String> renames = new HashMap<String, String>();
+		// Multimap<String,Object> rens = ArrayListMultimap.create();
+		
+		System.out.println("Scanning files...");
+		List<File> files = getFileListing(startingDirectory);
+		for(File file : files) {
 			if(file.isDirectory()) continue;
-			if(!file.toString().matches(".*\\.([mM][pP]3)$")) continue;
+			if(!file.toString().matches(".*\\.([mM][pP]3)$")) {
+				// System.err.println("Skipping non-mp3 file: " + file.toString());
+				continue;
+			}
 			if(!file.exists() || !file.canRead()) {
-				System.out.println("Cannot find/read file: " + file.toString());
+				System.err.println("Cannot find/read file: " + file.toString());
 				continue;
 			}
 			
 			md.reset();
 
-//			System.out.format("File: %s\t%d\n", file.toString(), file.length());
 			String escapedFilename = escapeFilename(file.toString());
+//			System.out.format("File: %s\t%d\n", file.toString(), file.length());
 //			System.out.println("File: " + escapedFilename);
 			Mp3File mp3 = new Mp3File(file.toString());
 			MP3FileWrapper fw = new MP3FileWrapper(file, mp3, md);
 
 			SortedMap<String, String> info = getFileInfo(fw);
-
 			String relPath = getRelPath(file.toString());
 			
-			boolean searchTunes = (null != libTunes);
 			boolean iTunesFound = false;
-			if(searchTunes) {
+			if(libTunes.size() > 0) {
+				// System.out.println("Searching iTunes for " + relPath);
 				iTunesFound = libTunes.containsKey(relPath.toUpperCase());
 				if(!iTunesFound) {
+					System.out.println("# Not Found in iTunes: " + relPath);
+					System.out.println("# Not Found in iTunes UC: " + relPath.toUpperCase());
+//					System.out.println("# Encoded: >>" + file.toURI());
+
+					
 					// Search for some possible alternate namings
 					String iTunesRelPath = null;
+
 					boolean altfound = false;
-	
 					int pos = relPath.lastIndexOf('.');
 					for(int altNum = 1; altNum < 10; ++altNum) {
 						iTunesRelPath = relPath.substring(0, pos) + " " + altNum + relPath.substring(pos);
@@ -88,19 +116,17 @@ public final class Intunate {
 						// Check that iTunes file version exists...
 						String iTunesMusicDirPath = getMusicDirPath(file.toString());
 						String iTunesFilePath = iTunesMusicDirPath + iTunesRelPath;
-						if(! new File(iTunesFilePath).exists()) {
-							System.out.println("mv -n " + escapedFilename + " " + escapeFilename(iTunesFilePath));
+						if(! (new File(iTunesFilePath)).exists()) {
+							renames.put(escapedFilename, escapeFilename(iTunesFilePath));
 						} else {
 							// check altfile to ensure same files
-							boolean same = compareMP3Files(new Mp3File(iTunesFilePath), mp3);
-							if(same) {
-								System.out.println("rm -f " + escapedFilename);
+							if(areSameMP3Files(new Mp3File(iTunesFilePath), mp3)) {
+								duplicates.add(escapedFilename);
 								continue;
 							}
 						}
 					} else {
-						// System.out.println("# ORPHAN/iTunes Missing: " + file.toString());
-						System.out.println("mv -nt ~/import/ " + escapedFilename);		
+						imports.add(escapedFilename);
 					}
 					
 				}
@@ -111,7 +137,7 @@ public final class Intunate {
 			info.put("iTunesFound", Boolean.toString(iTunesFound));
 			
 			
-			AdditionalTrackInfo iTunesInfo = libTunes.get(file.toString().toUpperCase());
+			Track iTunesInfo = libTunes.get(file.toString().toUpperCase());
 			if(null != iTunesInfo) {
 				// String iTunesInfoString = iTunesInfo.getAllAdditionalInfo();
 				// TODO
@@ -134,6 +160,17 @@ public final class Intunate {
 		}
 		System.out.println();
 		
+		System.out.println("# Need to import the following...");
+		for(String s : imports)
+			System.out.println("mv -nt ~/import/ \t" + s);
+		
+		for(String s : duplicates)
+			System.out.println("rm -f " + s);
+
+		for(String k : renames.keySet())
+			System.out.println("mv -n " + k + " " + renames.get(k));
+
+		
 		if(null != pw) pw.close();
 	}
 
@@ -149,36 +186,32 @@ public final class Intunate {
 		return prefixDirPath;
 	}
 
-	private static Map<String, AdditionalTrackInfo> readITunesLibrary(String libFile, boolean printLibrary) throws Exception {
-		Map<String, AdditionalTrackInfo> libTunes = new HashMap<String, AdditionalTrackInfo>();
-//		try {
+	private static Map<String, Track> readITunesLibrary(String libFile, Map<String, Track> libTunes, List<String> orphans) {
+		try {
 			LibraryObject lo = new XMLParser().parseXML(libFile);
 			LibraryParser lp = new LibraryParser(lo);
 			Track[] tracks = lp.getAllTracks();
 			int i = 0;
 			for(;i < tracks.length; ++i) {
-				String location = unmangleFilename(tracks[i].getLocation());
+				String location = urlDecode(tracks[i].getLocation());
 				if(location.matches(".*\\.([mM][pP]3)$")) {
 					String relPath = getRelPath(location);
 					if(null == relPath) {
 						if(!location.contains("/Audiobooks/")) {
-							System.out.println("iTunes library references missing file: " + location);
-							// System.out.println(tracks[i].getAdditionalTrackInfo().getAllAdditionalInfo());
+							orphans.add(location);
 						}
 						continue;
 					} else {
-						libTunes.put(relPath.toUpperCase(), tracks[i].getAdditionalTrackInfo());
-						if(printLibrary) System.out.println("iTunes:>" + relPath + "<");
+						libTunes.put(relPath.toUpperCase(), tracks[i]);
 					}
 				}
 			}
-			System.out.format("\tfound %d records\n", i);
-//		} catch (Exception e) {
-//			e.printStackTrace();
-//			System.out.println("Unable to read iTunes library");
-//			throw new RuntimeException(e);
-//			// return null;
-//		}
+		} catch (Exception e) {
+			e.printStackTrace();
+			System.err.println("Unable to read iTunes library");
+			// throw new RuntimeException(e);
+			libTunes.clear();
+		}
 		return libTunes;
 	}
 
@@ -274,11 +307,11 @@ public final class Intunate {
 		System.out.print("]");
 	}
 
-	private static boolean compareMP3Files(Mp3File m1, Mp3File m2) {
+	private static boolean areSameMP3Files(Mp3File m1, Mp3File m2) {
 		return(m1.getBitrate() == m2.getBitrate() && m1.getLengthInSeconds() == m2.getLengthInSeconds());
 	}
 
-	private static String unmangleFilename(String url) throws UnsupportedEncodingException, URISyntaxException {
+	private static String urlDecode(String url) throws UnsupportedEncodingException, URISyntaxException {
 		if(null == url) return null;
 		String filename = new URI(url).getPath();
 		return filename;
