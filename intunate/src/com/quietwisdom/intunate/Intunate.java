@@ -22,8 +22,9 @@ import com.mpatric.mp3agic.*;
 public final class Intunate {
 
 	public static final String DEFAULT_DELIMITER = "\t";
-	public static final String NULL_STRING = "NULL";
+	public static final String NULL_STRING = "";
 	public static final String CONST_MUSIC_SPLIT_REGEX = "(?i)/Music/";
+
 
 	public static void main(String[] args) throws Exception {
 		
@@ -39,7 +40,7 @@ public final class Intunate {
 		// libraryFileLocation = PropertyManager.getProperties().getProperty("libraryFileLocation");
 		System.out.println("Scanning iTunes Library @ " + libraryFileLocation);
 		List<String> missing = new ArrayList<String>();
-		Map<String, Track> libTunes = new HashMap<String, Track>();
+		Map<String, Track> libTunes = new TreeMap<String, Track>();
 		if(null != libraryFileLocation) 
 			readITunesLibrary(libraryFileLocation, libTunes, missing);
 		System.out.println("\tfound " + libTunes.keySet().size() + " records");
@@ -55,6 +56,12 @@ public final class Intunate {
 		for(String s : libTunes.keySet()) System.out.println(s);
 		System.out.println();
 		System.out.println();
+		
+
+		Set<String> libTunesUC = new TreeSet<String>();
+		for(String s : libTunes.keySet()) 
+			libTunesUC.add(s.toUpperCase());
+
 
 
 		PrintWriter pw = new PrintWriter(new FileWriter(outFileName));
@@ -86,16 +93,17 @@ public final class Intunate {
 			Mp3File mp3 = new Mp3File(file.toString());
 			MP3FileWrapper fw = new MP3FileWrapper(file, mp3, md);
 
-			SortedMap<String, String> info = getFileInfo(fw);
+			Map<String, String> info = getFileInfo(fw);
 			String relPath = getRelPath(file.toString());
 			
 			boolean iTunesFound = false;
 			if(libTunes.size() > 0) {
 				// System.out.println("Searching iTunes for " + relPath);
-				iTunesFound = libTunes.containsKey(relPath.toUpperCase());
+				// iTunesFound = libTunes.containsKey(relPath.toUpperCase());
+				iTunesFound = libTunes.containsKey(relPath);
 				if(!iTunesFound) {
-					System.out.println("# Not Found in iTunes: " + relPath);
-					System.out.println("# Not Found in iTunes UC: " + relPath.toUpperCase());
+//					System.out.println("# Not Found in iTunes: " + relPath);
+//					System.out.println("# Not Found in iTunes UC: " + relPath.toUpperCase());
 //					System.out.println("# Encoded: >>" + file.toURI());
 
 					
@@ -106,7 +114,8 @@ public final class Intunate {
 					int pos = relPath.lastIndexOf('.');
 					for(int altNum = 1; altNum < 10; ++altNum) {
 						iTunesRelPath = relPath.substring(0, pos) + " " + altNum + relPath.substring(pos);
-						if(libTunes.containsKey(iTunesRelPath.toUpperCase())) {
+//						if(libTunes.containsKey(iTunesRelPath.toUpperCase())) {
+						if(libTunes.containsKey(iTunesRelPath)) {
 							altfound = true;
 							break;
 						}
@@ -126,9 +135,11 @@ public final class Intunate {
 							}
 						}
 					} else {
-						imports.add(escapedFilename);
-					}
-					
+						if(! libTunesUC.contains(relPath.toUpperCase())) {
+							System.out.println("File not found in library: " + file.toString());
+							imports.add(escapedFilename);
+						}
+					}	
 				}
 			}
 			info.put("Filename", file.toString());
@@ -137,7 +148,8 @@ public final class Intunate {
 			info.put("iTunesFound", Boolean.toString(iTunesFound));
 			
 			
-			Track iTunesInfo = libTunes.get(file.toString().toUpperCase());
+//			Track iTunesInfo = libTunes.get(file.toString().toUpperCase());
+			Track iTunesInfo = libTunes.get(file.toString());
 			if(null != iTunesInfo) {
 				// String iTunesInfoString = iTunesInfo.getAllAdditionalInfo();
 				// TODO
@@ -202,7 +214,8 @@ public final class Intunate {
 						}
 						continue;
 					} else {
-						libTunes.put(relPath.toUpperCase(), tracks[i]);
+//						libTunes.put(relPath.toUpperCase(), tracks[i]);
+						libTunes.put(relPath, tracks[i]);
 					}
 				}
 			}
@@ -323,8 +336,8 @@ public final class Intunate {
 		System.exit(0);
 	}
 
-	private static void printInfoDelimited(SortedMap<String, String> info, PrintWriter pw, String delim, boolean header) {
-		if(header) {
+	private static void printInfoDelimited(Map<String, String> info, PrintWriter pw, String delim, boolean addHeader) {
+		if(addHeader) {
 			for (String k : info.keySet()) {
 				pw.print(k);
 				pw.print(delim);
